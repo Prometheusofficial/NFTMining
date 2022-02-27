@@ -28,17 +28,21 @@ contract NFTMining is Manageable{
     using SafeMath for *;
     using SafeERC20 for IERC20;
     
-    //IBattleNFT public batterNFT = IBattleNFT(0x378aC3870Ff0D0d28308e934a666a52752b55DB8);
-    //IGodNFT public godNFT = IGodNFT(0xd34Eb2d530245a60C6151B6cfa6D247Ee92668c7);
-    //IERC20 public rewardToken = IERC20(0x03aC6AB6A9a91a0fcdec7D85b38bDFBb719ec02f);
-    //IPancakeRouter public router = IPancakeRouter(0x10ED43C718714eb63d5aA57B78B54704E256024E);
-    //IERC20 public USDT = IERC20(0x55d398326f99059fF775485246999027B3197955); // this is USDT
+    IBattleNFT public batterNFT = IBattleNFT(0x378aC3870Ff0D0d28308e934a666a52752b55DB8);
+    IGodNFT public godNFT = IGodNFT(0xd34Eb2d530245a60C6151B6cfa6D247Ee92668c7);
+    IERC20 public rewardToken = IERC20(0x03aC6AB6A9a91a0fcdec7D85b38bDFBb719ec02f);
+    IPancakeRouter public router = IPancakeRouter(0x10ED43C718714eb63d5aA57B78B54704E256024E);
+    IERC20 public USDT = IERC20(0x55d398326f99059fF775485246999027B3197955); // this is USDT
+    IERC20 public mga = IERC20(0x03aC6AB6A9a91a0fcdec7D85b38bDFBb719ec02f); // this is MGA
     //test
+    /*
     IPancakeRouter public router = IPancakeRouter(0x10ED43C718714eb63d5aA57B78B54704E256024E);
     IBattleNFT public batterNFT = IBattleNFT(0x3Bd00BBD07E18743bFfb7589E2eE89FFd695f642);
     IGodNFT public godNFT = IGodNFT(0xD4fD679fA138589e81148bb2Dac6f0E8631e404e);
     IERC20 public rewardToken = IERC20(0xE36339cC77A7b155d7BC0543223D97831e5F60E9); // this is mga 
     IERC20 public USDT = IERC20(0x55d398326f99059fF775485246999027B3197955); // this is USDT
+    IERC20 public mga = IERC20(0xE36339cC77A7b155d7BC0543223D97831e5F60E9); // this is MGA
+    */
     uint256 public deadlineDelta = 5 minutes;
     
     IConfigMining public configMining;
@@ -54,6 +58,11 @@ contract NFTMining is Manageable{
     uint256 public maxGain = 64;
     uint256 public userNeedReward; // this is add use used reward amount;
     
+    //staking 
+    uint256 public stakingMaxTime = 30 days;
+    mapping(address => uint256 ) public userStakingAmount;
+    mapping(address => uint256) public userStakingStartTime;
+    
     bool public isNeedSwap;
     address[] public swapPath;
     
@@ -67,6 +76,8 @@ contract NFTMining is Manageable{
     event Depost(address _user,uint256 _pid,uint256 _godTokenID,uint256[]  _batterTokens); 
     event Withdraw(address _user,uint256 _pid);
     event WithdrawReward(address _user,uint256 _pid,uint256 _reward);
+    event Staking(address _user,uint256 _amount,uint256 _time);
+    event WithdrawStaking(address _user,uint256 _amount,uint256 _time);
     
     struct userStruct{
         uint256 startBlock;
@@ -114,6 +125,10 @@ contract NFTMining is Manageable{
     
     function setConfigMining(IConfigMining _configMining) public onlyManager{
         configMining = _configMining;
+    }
+    
+    function setMaxStakingTime(uint256 _time) public onlyManager{
+        stakingMaxTime = _time;
     }
     
     function addPool(address _user,uint256 _pid,uint256 _gameID,uint256 _BlockLen) public onlyManager{
@@ -246,6 +261,33 @@ contract NFTMining is Manageable{
         
     }
     
+    function staking(uint256 _amount) public{
+        require(_amount >= 1000*1e18 && _amount <= 20000*1e18,"amount not right");
+        uint256 stakingAmount = _amount.div(1000).mul(1000);
+        
+        mga.safeTransferFrom(msg.sender,address(this),stakingAmount);
+        
+        userStakingStartTime[msg.sender] = block.timestamp;
+        userStakingAmount[msg.sender] = userStakingAmount[msg.sender].add(stakingAmount);
+        
+        emit Staking(msg.sender,stakingAmount,block.timestamp);
+    }
+    
+    function withdrawStaking() public{
+        require(userStakingAmount[msg.sender] > 0,"not staking amount");
+        uint256 tiemLen = block.timestamp.sub(userStakingStartTime[msg.sender]);
+        require(tiemLen >= stakingMaxTime, "The time limit has not expired");
+        uint256 stakingAmount = userStakingAmount[msg.sender];
+        userStakingStartTime[msg.sender] = 0;
+        userStakingAmount[msg.sender] = 0;
+        
+        mga.safeTransfer(msg.sender,stakingAmount);
+        
+        emit WithdrawStaking(msg.sender,stakingAmount,block.timestamp);
+        
+    }
+    
+    
     function withdrawReward(uint256 _pid) public onlyUserPool(_pid,msg.sender) {
         address user = msg.sender;
         require(checkWithdraw(_pid,user),"checkWithdraw fail");
@@ -305,15 +347,29 @@ contract NFTMining is Manageable{
     function pendingReward(uint256 _pid,uint256 _gameID,address _user) public view returns(uint256 _reward){
         userStruct memory uss = userInfo[_pid][_user];
         poolStruct memory pss = poolInfo[_pid];
-        uint256 sBlock = uss.startBlock > uss.witdrawBlock ? uss.startBlock:uss.witdrawBlock;
-        if(block.number > sBlock && block.number <= pss.endBlock){
+        uint256 sBlock = uss.startBlock;
+        uint256 tempReward;
+        if(block.number > sBlock){
             uint256 eBlock = block.number >= pss.endBlock?  pss.endBlock :block.number;
             uint256 blockLen = eBlock.sub(sBlock);
             uint256 gain = (calcUserGodGain(uss.godTokenID)+1).mul(calcUserBattleGain(_pid,_gameID,_user));
             gain = gain > maxGain ? maxGain:gain;
-            _reward  = blockLen.mul(pss.perBlock).mul(gain);
+            
+            // need add new 
+            
+            tempReward  = blockLen.mul(pss.perBlock).mul(gain);
+            
+            uint256 stakingGain = calcStakingGain(_user);
+            if(stakingGain > 0){
+                tempReward = tempReward.mul(stakingGain.add(100)).div(100);
+            }
+             _reward = tempReward;
         }
         
+    }
+    
+    function calcStakingGain(address _user) public view returns(uint256){
+        return userStakingAmount[_user].mul(5).div(1000*1e18);
     }
     
     function calcUserBattleGain(uint256 _pid,uint256 _gameID,address _user) public view returns(uint256 ){
@@ -413,20 +469,5 @@ contract NFTMining is Manageable{
         }
     }
     
-    function initListing() internal{
-        ListingID = 1;
-        address[]  memory p;
-        
-        ListInfoS memory s1  = ListInfoS({
-            rewardToken : IERC20(0xE36339cC77A7b155d7BC0543223D97831e5F60E9), // usdt 
-            maxRewardAmount : 10000*1e18,
-            basePerBlock : 1*1e14,
-            userNeedReward :0,
-            alreadWithdraw :0 ,
-            path :p,
-            needSwap : false
-        });
-        listing[1] = s1;
-    }
     
 }
