@@ -47,6 +47,8 @@ contract ConfigMining is Manageable{
     mapping(uint256 => AStruct[]) public miningAttributesList;
     mapping(uint256 => bool) public isSetGameID;
     
+    event SetCheckList(uint256 _gameID,uint256[]  _Attributes,uint256[]  _vaules);
+    event UpdateCheckList(uint256 _gaimID,uint256 _Attribute,uint256 _vaule);
     
     function setCheckList(uint256 _gameID,uint256[] memory _Attributes,uint256[] memory _vaules) public onlyManager{
         uint256 len = _Attributes.length;
@@ -60,22 +62,26 @@ contract ConfigMining is Manageable{
         }
         
         isSetGameID[_gameID] = true;
+
+        emit SetCheckList(_gameID,_Attributes,_vaules);
         
     }
     
-    function updateCheckList(uint256 _gaimID,uint256 _Attribute,uint256 _vaule) public onlyManager{
-        uint256 len = miningAttributesList[_gaimID].length;
+    function updateCheckList(uint256 _gameID,uint256 _Attribute,uint256 _vaule) public onlyManager{
+        require(isSetGameID[_gameID],"not set this _gameID");
+        uint256 len = miningAttributesList[_gameID].length;
         AStruct memory ams = AStruct({
             attribute:_Attribute,
                 vaule:_vaule
         });
         
         for(uint256 i=0 ; i<len; i++){
-            if(miningAttributesList[_gaimID][i].attribute == _Attribute){
-                miningAttributesList[_gaimID][i] = ams;
+            if(miningAttributesList[_gameID][i].attribute == _Attribute){
+                miningAttributesList[_gameID][i] = ams;
                 break;
             }
         }
+        emit UpdateCheckList(_gameID,_Attribute,_vaule);
     }
     
     function isValidGameID(uint256 _gaimID) public view returns(bool){

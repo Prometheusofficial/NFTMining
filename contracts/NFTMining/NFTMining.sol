@@ -28,12 +28,12 @@ contract NFTMining is Manageable{
     using SafeMath for *;
     using SafeERC20 for IERC20;
     
-    IBattleNFT public batterNFT = IBattleNFT(0x378aC3870Ff0D0d28308e934a666a52752b55DB8);
-    IGodNFT public godNFT = IGodNFT(0xd34Eb2d530245a60C6151B6cfa6D247Ee92668c7);
-    IERC20 public rewardToken = IERC20(0x03aC6AB6A9a91a0fcdec7D85b38bDFBb719ec02f);
-    IPancakeRouter public router = IPancakeRouter(0x10ED43C718714eb63d5aA57B78B54704E256024E);
-    IERC20 public USDT = IERC20(0x55d398326f99059fF775485246999027B3197955); // this is USDT
-    IERC20 public mga = IERC20(0x03aC6AB6A9a91a0fcdec7D85b38bDFBb719ec02f); // this is MGA
+    IBattleNFT immutable public batterNFT = IBattleNFT(0x378aC3870Ff0D0d28308e934a666a52752b55DB8);
+    IGodNFT immutable public godNFT = IGodNFT(0xd34Eb2d530245a60C6151B6cfa6D247Ee92668c7);
+    IERC20  public rewardToken = IERC20(0x03aC6AB6A9a91a0fcdec7D85b38bDFBb719ec02f);
+    IPancakeRouter immutable public router = IPancakeRouter(0x10ED43C718714eb63d5aA57B78B54704E256024E);
+    IERC20 public immutable USDT = IERC20(0x55d398326f99059fF775485246999027B3197955); // this is USDT
+    IERC20 public immutable mga = IERC20(0x03aC6AB6A9a91a0fcdec7D85b38bDFBb719ec02f); // this is MGA
     //test
     /*
     IPancakeRouter public router = IPancakeRouter(0x10ED43C718714eb63d5aA57B78B54704E256024E);
@@ -67,9 +67,6 @@ contract NFTMining is Manageable{
     address[] public swapPath;
     
     
-    uint256 public ListingID;
-    mapping(uint256 => ListInfoS) public listing; // ID=INFO
-    
     mapping(address => uint256[]) public userPools;
     
     event AddPool(address user,uint256 _pid,uint256 _gameID,uint256 _perBlock,uint256 _startBlock,uint256 _endBlock);
@@ -79,6 +76,10 @@ contract NFTMining is Manageable{
     event Staking(address _user,uint256 _amount,uint256 _time);
     event WithdrawStaking(address _user,uint256 _amount,uint256 _time);
     
+    event SetConfigMining(IConfigMining _configMining);
+    event SetMaxStakingTime(uint256 _time);
+    event EmergencyWithdrawE(uint256 _pid,address _user);
+    
     struct userStruct{
         uint256 startBlock;
         uint256 witdrawBlock;
@@ -86,15 +87,6 @@ contract NFTMining is Manageable{
         uint256[] batterTokenIDList;
     }
     
-    struct ListInfoS{
-        IERC20  rewardToken;
-        uint256  maxRewardAmount;
-        uint256 basePerBlock;
-        uint256 userNeedReward;
-        uint256 alreadWithdraw;
-        address[] path;
-        bool needSwap;
-    }
     struct poolStruct{
         address user;
         uint256 gameID;
@@ -125,13 +117,18 @@ contract NFTMining is Manageable{
     
     function setConfigMining(IConfigMining _configMining) public onlyManager{
         configMining = _configMining;
+        
+        emit SetConfigMining(_configMining);
     }
     
     function setMaxStakingTime(uint256 _time) public onlyManager{
         stakingMaxTime = _time;
+        
+        emit SetMaxStakingTime(_time);
     }
     
     function addPool(address _user,uint256 _pid,uint256 _gameID,uint256 _BlockLen) public onlyManager{
+        require(_user != address(0),"_user is zeor ");
         require(configMining.isValidGameID(_gameID),"only config gameID");
         require(userNeedReward < maxRewardAmount,"only have reward");
         poolStruct storage pss = poolInfo[_pid];
@@ -167,7 +164,9 @@ contract NFTMining is Manageable{
         uss.witdrawBlock = uss.startBlock;
         uss.godTokenID = _godTokenID;
         IERC721 nftGod = IERC721(address(godNFT));
-        nftGod.safeTransferFrom(msg.sender,address(this), _godTokenID);
+        if(_godTokenID > 0 ){
+            nftGod.safeTransferFrom(msg.sender,address(this), _godTokenID);
+        }
         
         uint256 len = _batterTokens.length;
         IERC721 nftbatter = IERC721(address(batterNFT));
@@ -196,6 +195,11 @@ contract NFTMining is Manageable{
             uint256 gain = (calcUserGodGain(uss.godTokenID)+1).mul(calcUserBattleGain(_pid,_gameID,_user));
             gain = gain > maxGain ? maxGain:gain;
             _needReward  = blockLen.mul(pss.perBlock).mul(gain);
+            
+             uint256 stakingGain = calcStakingGain(_user);
+            if(stakingGain > 0){
+                _needReward = _needReward.mul(stakingGain.add(100)).div(100);
+            }
     }
     
     function withdraw(uint256 _pid) public{
@@ -206,21 +210,24 @@ contract NFTMining is Manageable{
         withdrawReward(_pid);
         
         IERC721 nftGod = IERC721(address(godNFT));
-        nftGod.safeTransferFrom(address(this), msg.sender, uss.godTokenID);
-        uss.godTokenID = 0;
+        if(uss.godTokenID > 0){
+            nftGod.safeTransferFrom(address(this), msg.sender, uss.godTokenID);
+            uss.godTokenID = 0;
+        }
         uint256 len = uss.batterTokenIDList.length;
         IERC721 nftbatter = IERC721(address(batterNFT));
         for(uint256 i=0; i<len ;i++){
             nftbatter.safeTransferFrom(address(this),msg.sender,uss.batterTokenIDList[i]);
         }
-        for(uint256 i=len-1; i<=0 ;i--){
-            uss.batterTokenIDList.pop();
-            if(i==0){
-                break;
+        if(len > 0){
+            for(uint256 i=len-1; i>=0 ;i--){
+                uss.batterTokenIDList.pop();
+                if(i==0){
+                    break;
+                }
             }
-            
         }
-        
+        uss.witdrawBlock = block.number;
         emit Withdraw(msg.sender,_pid);
         
     }
@@ -244,6 +251,8 @@ contract NFTMining is Manageable{
             
         }
         uss.witdrawBlock = block.number;
+        
+        emit EmergencyWithdrawE(_pid,msg.sender);
     }
     
     function userPoolsLength(address _user) public view returns(uint256){
@@ -255,7 +264,7 @@ contract NFTMining is Manageable{
         userStruct memory uss = userInfo[_pid][_user];
         
         
-        if(block.number >= pss.endBlock && uss.godTokenID > 0 && uss.batterTokenIDList.length>0){
+        if(block.number >= pss.endBlock && uss.batterTokenIDList.length>0){
             _canWithdraw = true;
         }
         
