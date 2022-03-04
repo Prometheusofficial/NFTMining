@@ -28,12 +28,14 @@ contract NFTMining is Manageable{
     using SafeMath for *;
     using SafeERC20 for IERC20;
     
-    IBattleNFT immutable public batterNFT = IBattleNFT(0x378aC3870Ff0D0d28308e934a666a52752b55DB8);
-    IGodNFT immutable public godNFT = IGodNFT(0xd34Eb2d530245a60C6151B6cfa6D247Ee92668c7);
+    
+    IBattleNFT constant public batterNFT = IBattleNFT(0x378aC3870Ff0D0d28308e934a666a52752b55DB8);
+    IGodNFT constant public godNFT = IGodNFT(0xd34Eb2d530245a60C6151B6cfa6D247Ee92668c7);
     IERC20  public rewardToken = IERC20(0x03aC6AB6A9a91a0fcdec7D85b38bDFBb719ec02f);
-    IPancakeRouter immutable public router = IPancakeRouter(0x10ED43C718714eb63d5aA57B78B54704E256024E);
-    IERC20 public immutable USDT = IERC20(0x55d398326f99059fF775485246999027B3197955); // this is USDT
-    IERC20 public immutable mga = IERC20(0x03aC6AB6A9a91a0fcdec7D85b38bDFBb719ec02f); // this is MGA
+    IPancakeRouter constant public router = IPancakeRouter(0x10ED43C718714eb63d5aA57B78B54704E256024E);
+    IERC20 public constant USDT = IERC20(0x55d398326f99059fF775485246999027B3197955); // this is USDT
+    IERC20 public constant mga = IERC20(0x03aC6AB6A9a91a0fcdec7D85b38bDFBb719ec02f); // this is MGA
+    
     //test
     /*
     IPancakeRouter public router = IPancakeRouter(0x10ED43C718714eb63d5aA57B78B54704E256024E);
@@ -467,6 +469,10 @@ contract NFTMining is Manageable{
     
     // this returns 1,3 7
     function calcUserGodGain(uint256 _godTokenID) public view returns(uint256 godGain){
+        if(_godTokenID == 0){
+            godGain = 0;
+            return 0;
+        }
         IGodNFT.CAttributes_S memory css;
         css = godNFT.cAttributes(_godTokenID);
         if(css.rarityIdx == 2001){

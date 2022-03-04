@@ -51,6 +51,7 @@ contract ConfigMining is Manageable{
     event UpdateCheckList(uint256 _gaimID,uint256 _Attribute,uint256 _vaule);
     
     function setCheckList(uint256 _gameID,uint256[] memory _Attributes,uint256[] memory _vaules) public onlyManager{
+        require(!isSetGameID[_gameID], "duplicate add");
         uint256 len = _Attributes.length;
         require(_vaules.length == len,"not equel length");
         totalGameID += 1;
