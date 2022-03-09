@@ -155,12 +155,13 @@ contract NFTMining is Manageable{
         return maxRewardAmount.sub(userNeedReward);
     }
     
-    function depost(uint256 _pid,uint256 _godTokenID,uint256[] memory _batterTokens) public onlyUserPool(_pid,msg.sender){
+    function deposit(uint256 _pid,uint256 _godTokenID,uint256[] memory _batterTokens) public onlyUserPool(_pid,msg.sender){
         require(_batterTokens.length == 3,"_batterTokens not enough");
         poolStruct memory pss = poolInfo[_pid];
         require(block.number < pss.endBlock,"ended stake");
         
         userStruct storage uss = userInfo[_pid][msg.sender];
+        require(uss.startBlock == 0, "user already deposit");
         
         uss.startBlock = block.number > pss.startBlock ? block.number:pss.startBlock;
         uss.witdrawBlock = uss.startBlock;
@@ -245,10 +246,12 @@ contract NFTMining is Manageable{
         for(uint256 i=0; i<len ;i++){
             nftbatter.safeTransferFrom(address(this),msg.sender,uss.batterTokenIDList[i]);
         }
-        for(uint256 i=len-1; i<=0 ;i--){
-            uss.batterTokenIDList.pop();
-            if(i==0){
-                break;
+        if(len > 0){
+            for(uint256 i=len-1; i>=0 ;i--){
+                uss.batterTokenIDList.pop();
+                if(i==0){
+                    break;
+                }
             }
             
         }
@@ -274,7 +277,7 @@ contract NFTMining is Manageable{
     
     function staking(uint256 _amount) public{
         require(_amount >= 1000*1e18 && _amount <= 20000*1e18,"amount not right");
-        uint256 stakingAmount = _amount.div(1000).mul(1000);
+        uint256 stakingAmount = _amount.div(1000*1e18).mul(1000*1e18);
         
         mga.safeTransferFrom(msg.sender,address(this),stakingAmount);
         
@@ -299,7 +302,7 @@ contract NFTMining is Manageable{
     }
     
     
-    function withdrawReward(uint256 _pid) public onlyUserPool(_pid,msg.sender) {
+    function withdrawReward(uint256 _pid) internal{
         address user = msg.sender;
         require(checkWithdraw(_pid,user),"checkWithdraw fail");
         poolStruct storage pss = poolInfo[_pid];
@@ -362,6 +365,7 @@ contract NFTMining is Manageable{
         uint256 tempReward;
         if(block.number > sBlock){
             uint256 eBlock = block.number >= pss.endBlock?  pss.endBlock :block.number;
+            
             uint256 blockLen = eBlock.sub(sBlock);
             uint256 gain = (calcUserGodGain(uss.godTokenID)+1).mul(calcUserBattleGain(_pid,_gameID,_user));
             gain = gain > maxGain ? maxGain:gain;
