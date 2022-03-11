@@ -239,7 +239,9 @@ contract NFTMining is Manageable{
         userStruct storage uss = userInfo[_pid][msg.sender];
         
         IERC721 nftGod = IERC721(address(godNFT));
-        nftGod.safeTransferFrom(address(this), msg.sender, uss.godTokenID);
+        if(uss.godTokenID > 0){
+            nftGod.safeTransferFrom(address(this), msg.sender, uss.godTokenID);
+        }
         uss.godTokenID = 0;
         uint256 len = uss.batterTokenIDList.length;
         IERC721 nftbatter = IERC721(address(batterNFT));
